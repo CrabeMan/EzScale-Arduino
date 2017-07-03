@@ -1,5 +1,4 @@
-#include <stdio.h>
-#include <string.h>
+#include "EzScale-Arduino.h"
 
 #if defined(ARDUINO)
 SYSTEM_MODE(SEMI_AUTOMATIC);
@@ -28,25 +27,27 @@ SYSTEM_MODE(SEMI_AUTOMATIC);
 #define BLE_OBJECT_NAME SCALE_PRODUCT_NAME SPACER SCALE_PRODUCT_SUBNAME
 #define BLE_OBJECT_ID "ezscale-mk1"
 
-#define CHARACTERISTIC_SCALE_STATUS_MAX_LEN          8
+#define CHARACTERISTIC_SCALE_STATUS_MAX_LEN          2
 #define CHARACTERISTIC1_MAX_LEN                     20
 #define CHARACTERISTIC2_MAX_LEN                     20
-#define TXRX_BUF_LEN                                20
 
 
 /******************************************************
                  Status Definitions
  ******************************************************/
-#define SCALE_STATUS_INIT 0x41;
-#define SCALE_STATUS_READY 0x42;
+static byte SCALE_STATUS_INIT                   = 0x00;
+static byte SCALE_STATUS_READY                  = 0x01;
 
-#define WIFI_STATUS_INIT 0x41;
-#define WIFI_STATUS_NO_CREDENTIAL 0x42;
-#define WIFI_STATUS_CONNECTING 0x43;
-#define WIFI_STATUS_CONNECTED_WAIT_FOR_DHCP 0x44;
-#define WIFI_STATUS_CONNECTED 0x45;
+static byte WIFI_STATUS_INIT                    = 0x00;
+static byte WIFI_STATUS_NO_CREDENTIAL           = 0x01;
+static byte WIFI_STATUS_CONNECTING              = 0x02;
+static byte WIFI_STATUS_CONNECTED_WAIT_FOR_DHCP = 0x03;
+static byte WIFI_STATUS_CONNECTED               = 0x04;
 
-#define WIFI_STATUS_CONNECT_TIMEOUT 0x50;
+static byte WIFI_STATUS_CONNECT_TIMEOUT         = 0x10;
+static byte WIFI_STATUS_DHCP_TIMEOUT            = 0x11;
+
+static byte WIFI_STATUS_SCANNING                = 0x15;
 
 
 
@@ -77,32 +78,6 @@ static uint8_t  conn_param[8] = {
   LOW_BYTE(CONN_SUPERVISION_TIMEOUT), HIGH_BYTE(CONN_SUPERVISION_TIMEOUT)
 };
 
-/*
-   BLE peripheral advertising parameters:
-       - advertising_interval_min: [0x0020, 0x4000], default: 0x0800, unit: 0.625 msec
-       - advertising_interval_max: [0x0020, 0x4000], default: 0x0800, unit: 0.625 msec
-       - advertising_type:
-             BLE_GAP_ADV_TYPE_ADV_IND
-             BLE_GAP_ADV_TYPE_ADV_DIRECT_IND
-             BLE_GAP_ADV_TYPE_ADV_SCAN_IND
-             BLE_GAP_ADV_TYPE_ADV_NONCONN_IND
-       - own_address_type:
-             BLE_GAP_ADDR_TYPE_PUBLIC
-             BLE_GAP_ADDR_TYPE_RANDOM
-       - advertising_channel_map:
-             BLE_GAP_ADV_CHANNEL_MAP_37
-             BLE_GAP_ADV_CHANNEL_MAP_38
-             BLE_GAP_ADV_CHANNEL_MAP_39
-             BLE_GAP_ADV_CHANNEL_MAP_ALL
-       - filter policies:
-             BLE_GAP_ADV_FP_ANY
-             BLE_GAP_ADV_FP_FILTER_SCANREQ
-             BLE_GAP_ADV_FP_FILTER_CONNREQ
-             BLE_GAP_ADV_FP_FILTER_BOTH
-
-   Note:  If the advertising_type is set to BLE_GAP_ADV_TYPE_ADV_SCAN_IND or BLE_GAP_ADV_TYPE_ADV_NONCONN_IND,
-          the advertising_interval_min and advertising_interval_max should not be set to less than 0x00A0.
-*/
 static advParams_t adv_params = {
   .adv_int_min   = 0x0030,
   .adv_int_max   = 0x0030,
@@ -134,25 +109,85 @@ static uint16_t character1_handle = 0x0000;
 static uint16_t character2_handle = 0x0000;
 
 
-static uint8_t characteristic_scale_status_data[CHARACTERISTIC_SCALE_STATUS_MAX_LEN] = { 0x00 };
+static uint8_t characteristic_scale_status_data[CHARACTERISTIC_SCALE_STATUS_MAX_LEN] = {SCALE_STATUS_INIT, WIFI_STATUS_INIT};
 
 static uint8_t characteristic1_data[CHARACTERISTIC1_MAX_LEN] = { 0x01 };
 static uint8_t characteristic2_data[CHARACTERISTIC2_MAX_LEN] = { 0x00 };
 
 static btstack_timer_source_t serialInputTimer;
+static int serialInputTimerTime = 200;
 
-char rx_buf[TXRX_BUF_LEN];
-static uint8_t rx_state = 0;
+static btstack_timer_source_t pushNotificationTimer;
+static int pushNotificationTimerTime = 100;
 
-static int outMsgNum = 0;
+static String inBuffer = NULL;
 
-static String inBuffer = "";
-static int inMsg = -1;
-static int inBatchPos = 0;
+static StaticJsonBuffer<300> jsonBuffer;
+
+struct NotificationMessage {
+  uint8_t msg[20];
+  int size;
+};
+QueueList <NotificationMessage> notificationsQueue;
+
 
 /******************************************************
                  Function Definitions
  ******************************************************/
+void pushNotificationMessage(const uint8_t batch[20], int batchSize) {
+  NotificationMessage notif;
+  for (int i = 0; i < 20; i++) {
+    notif.msg[i] = batch[i];
+  }
+  notif.size = batchSize;
+  notificationsQueue.push(notif);
+}
+
+String formatForSend(String jsonBase) {
+  return String(((char)0x02)) + jsonBase + String(((char)0x03));
+}
+
+void sendNotification(String json) {
+  Serial.println("sendNotification: " + json);
+  int jsonLength = strlen(json);
+  int batchSize = 20;
+  int posCounter = 0;
+  
+  uint8_t batch[20] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+  while (posCounter < jsonLength) {
+    int batchContentSize = min(jsonLength - posCounter, batchSize);
+    String str2 = json.substring(posCounter, posCounter + batchContentSize);
+    for (int i = 0; i < batchContentSize; i++) {
+      batch[i] = str2[i];
+    }
+
+    posCounter += batchContentSize;
+    pushNotificationMessage(batch, batchContentSize);
+    //ble.sendNotify(handle, batch, batchContentSize);
+  }
+}
+
+
+
+void setStatus(byte scaleStaus, byte wifiStatus) {
+  characteristic_scale_status_data[0] = scaleStaus;
+  characteristic_scale_status_data[1] = wifiStatus;
+  ble.sendNotify(character_scale_status_handle, characteristic_scale_status_data, CHARACTERISTIC2_MAX_LEN);
+}
+
+void setScaleStatus(byte scaleStaus) {
+  characteristic_scale_status_data[0] = scaleStaus;
+  ble.sendNotify(character_scale_status_handle, characteristic_scale_status_data, CHARACTERISTIC2_MAX_LEN);
+}
+
+void setWifiStatus(byte wifiStatus) {
+  characteristic_scale_status_data[1] = wifiStatus;
+  ble.sendNotify(character_scale_status_handle, characteristic_scale_status_data, CHARACTERISTIC2_MAX_LEN);
+}
+
+
+
 void deviceConnectedCallback(BLEStatus_t status, uint16_t handle) {
   switch (status) {
     case BLE_STATUS_OK:
@@ -166,32 +201,29 @@ void deviceDisconnectedCallback(uint16_t handle) {
   Serial.println("Disconnected.");
 }
 
+
+
 int gattWriteCallback(uint16_t value_handle, uint8_t *buffer, uint16_t size) {
   Serial.print("Write value handler: ");
   Serial.println(value_handle, HEX);
 
   if (character1_handle == value_handle) {
-    Serial.println((char*) buffer);
-    Serial.println(size);
-    /*int inMsgCurrent = value_handle[0];
-    int inBatchPosCurrent = value_handle[1];
-
-    if ((inMsgCurrent == inMsg || inMsgCurrent == -1) && inBatchPosCurrent == inBatchPos + 1) {
-      for (int i = 3; i < 20; i++) {
-        if (value_handle[i] != 0x00) {
-          inBuffer += buffer[i];
-        } else {
-          onMessageReceive(inBuffer);
-          inBuffer = "";
-          inMsgCurrent = -1;
-          inBatchPos = -1;
-          break;
-        }
+    if (size > 0) {
+      int i = 0;
+      if (inBuffer == NULL && buffer[0] == 0x02) {
+        i++;
+        inBuffer = "";
       }
 
-      inBatchPos = inBatchPosCurrent;
-      inMsg = inMsgCurrent;
-    }*/
+      for (; i < size; i++) {
+        if (buffer[i] == 0x03) {
+          onMessageWrite(inBuffer);
+          inBuffer = NULL;
+          return 0;
+        }
+        inBuffer += ((char)buffer[i]);
+      }
+    }
   }
   return 0;
 }
@@ -203,8 +235,8 @@ uint16_t gattReadCallback(uint16_t value_handle, uint8_t * buffer, uint16_t buff
 
   if (character_scale_status_handle == value_handle) {   // Characteristic value handle.
     Serial.println(buffer_size);
-    Serial.println(sizeof(characteristic2_data));
-    Serial.println((char*)characteristic2_data);
+    Serial.println(characteristic_scale_status_data[0], HEX);
+    Serial.println(characteristic_scale_status_data[1], HEX);
 
     memcpy(buffer, characteristic_scale_status_data, CHARACTERISTIC_SCALE_STATUS_MAX_LEN);
     return CHARACTERISTIC_SCALE_STATUS_MAX_LEN;
@@ -213,80 +245,165 @@ uint16_t gattReadCallback(uint16_t value_handle, uint8_t * buffer, uint16_t buff
   return 0;
 }
 
-/*void m_uart_rx_handle() {   //update characteristic data
-  ble.sendNotify(character2_handle, rx_buf, CHARACTERISTIC2_MAX_LEN);
-  memset(rx_buf, 0x00,20);
-  rx_state = 0;
-  }*/
 
-static void notifySerialInput(btstack_timer_source_t *ts) {
-  if (Serial.available()) {
-    String str = Serial.readStringUntil('\n');
-    String json = "{\"type\": \"serial-in\",\"msg\": \"" + str + "\"}";
-    Serial.println(json);
-    sendNotification(character2_handle, json);
-    //setScaleStatus(00, "05812");
+
+static void processPushNotif(btstack_timer_source_t *ts) {
+  if (!notificationsQueue.isEmpty()) {
+    NotificationMessage notif = notificationsQueue.pop();
+    ble.sendNotify(character1_handle, notif.msg, notif.size);
   }
-  ble.setTimer(ts, 200);
+  ble.setTimer(ts, pushNotificationTimerTime);
   ble.addTimer(ts);
 }
 
-static void setScaleStatus(const int status, const char* weight) {
-  Serial.println("setScaleStatus");
-  characteristic_scale_status_data[0] = 0x41;
-  characteristic_scale_status_data[1] = 0x41;
-  characteristic_scale_status_data[2] = 0x20;
-  characteristic_scale_status_data[3] = weight[0];
-  characteristic_scale_status_data[4] = weight[1];
-  characteristic_scale_status_data[5] = weight[2];
-  characteristic_scale_status_data[6] = weight[3];
-  characteristic_scale_status_data[7] = weight[4];
-  ble.sendNotify(character_scale_status_handle, characteristic_scale_status_data, CHARACTERISTIC2_MAX_LEN);
+static void processSerialInput(btstack_timer_source_t *ts) {
+  if (Serial.available()) {
+    String str = Serial.readStringUntil('\n');
+    String json = "{\"type\": \"serial-in\",\"msg\": \"" + str + "\"}";
+    sendNotification(formatForSend(json));
+  }
+  ble.setTimer(ts, serialInputTimerTime);
+  ble.addTimer(ts);
 }
 
-void sendNotification(uint16_t handle, String json) {
-  int jsonLength = strlen(json);
-  int batchSize = 18;
-  int msgPos = ++outMsgNum;
-  int posCounter = 0;
-  int batchCounter = 0;
-  while (posCounter < jsonLength) {
-    Serial.println(jsonLength);
-    Serial.println(posCounter);
-    int batchContentSize = min(jsonLength - posCounter, batchSize);
-    Serial.println(batchContentSize);
-    String str2 = json.substring(posCounter, posCounter + batchContentSize);
-    Serial.println(str2);
-    uint8_t data[20] = {msgPos, batchCounter + '0', 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-    for (int i = 0; i < batchContentSize; i++) {
-      data[2 + i] = str2[i];
+
+
+void onMessageWrite(String json) {
+  Serial.println("Read Message: " + json);
+  JsonObject& jsonRoot = jsonBuffer.parseObject(json);
+  const char* typeChar = jsonRoot["type"];
+  String type = String(typeChar);
+  if (type == "wifi-scan") { //WIFI SCAN
+    byte currentStatus = characteristic_scale_status_data[1];
+    setWifiStatus(WIFI_STATUS_SCANNING);
+    int found = WiFi.scan(wifiScanCallback);
+    setWifiStatus(currentStatus);
+  } else if (type == "wifi-credential") { //WIFI CREDENTIAL
+    const char* ssid = jsonRoot["ssid"];
+    const char* secChar = jsonRoot["sec"];
+    const char* password = jsonRoot["pwd"];
+    int security = atoi(secChar);
+    //WiFi.clearCredentials();
+    Serial.println("Set credentials and connect to Wifi");
+    switch (security) {
+      case 0:
+        WiFi.setCredentials(ssid);
+        break;
+
+      case 1:
+        WiFi.setCredentials(ssid, password, WEP, WLAN_CIPHER_NOT_SET);
+        break;
+
+      case 2:
+      case 3:
+        WiFi.setCredentials(ssid, password);
+        break;
     }
+    connectWifi();
+  } else if (type == "wifi-info") {
 
-    for (uint8_t index = 0; index < 20; index++) {
-      Serial.print(data[index], HEX);
-    }
-    Serial.println();
+    const char* ssid = WiFi.SSID();
+    IPAddress localIP = WiFi.localIP();
 
+    byte bssid[6];
+    byte mac[6];
+    WiFi.BSSID(bssid);
+    WiFi.macAddress(mac);
+    
+    char bssidChar[17];
+    char macChar[17];
 
-    posCounter += batchContentSize;
-    //ble.sendNotify(handle, data, 20);
+    sprintf(bssidChar, "%02X:%02X:%02X:%02X:%02X:%02X", bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
+    sprintf(macChar, "%02X:%02X:%02X:%02X:%02X:%02X", mac[5], mac[4], mac[3], mac[2], mac[1], mac[0]);
+    sendNotification(
+    String(((char)0x02))
+      + "{\"type\":\"wifi-info\","
+      + "\"ssid\":\"" + ssid + "\","
+      + "\"bssid\":\"" + bssidChar + "\","
+      + "\"ip\":\"" + String(localIP) + "\","
+      + "\"mac\":\"" + macChar + "\""
+      + "}"
+      + String(((char)0x03))
+    );
   }
 }
 
+static void connectWifi() {
+  setWifiStatus(WIFI_STATUS_CONNECTING);
 
-void onMessageReceive(String str) {
-  Serial.print("onMessageReceive: ");
-  Serial.print(str);
+  //WiFi.setCredentials("TP-LINK_4DE4","34221921");
+  Serial.println("Wifi: Trying to connect");
+  WiFi.connect(WIFI_CONNECT_SKIP_LISTEN);
+  int connectCounter = 0;
+  while (WiFi.connecting()) {
+    Serial.print(".");
+    delay(100);
+    if (++connectCounter == 50) {//5 sec
+      Serial.println("Wifi: Connect Timeout");
+      setWifiStatus(WIFI_STATUS_CONNECT_TIMEOUT);
+      WiFi.disconnect();
+      return;
+    }
+  }
+
+  Serial.print(".");
+  delay(100);
+
+  if (WiFi.RSSI() == 0) {
+    Serial.println("Wifi: Not connected");
+    setWifiStatus(WIFI_STATUS_CONNECT_TIMEOUT);
+    WiFi.disconnect();
+    return;
+  }
+
+  Serial.println("Wifi: Connected");
+  Serial.println("Wifi: Waiting for an IP address");
+  setWifiStatus(WIFI_STATUS_CONNECTED_WAIT_FOR_DHCP);
+  
+  int dhcpCounter = 0;
+  IPAddress localIP = WiFi.localIP();
+  while (localIP[0] == 0) {
+    localIP = WiFi.localIP();
+    Serial.print(".");
+    delay(100);
+
+    if (++dhcpCounter == 100) {//10 sec
+      Serial.println("Wifi: DHCP Timeout");
+      setWifiStatus(WIFI_STATUS_DHCP_TIMEOUT);
+      WiFi.disconnect();
+      return;
+    }
+  }
+  Serial.println("Wifi: Ip Ok");
+  setWifiStatus(WIFI_STATUS_CONNECTED);
 }
+
+void wifiScanCallback(WiFiAccessPoint* wap, void* data) {
+  sendNotification(
+  String(((char)0x02))
+    + "{\"type\":\"wifi-result\","
+    + "\"ssid\":\"" + String(wap->ssid) + "\","
+    + "\"sec\":" + wap->security + ","
+    + "\"chan\":" + wap->channel + ","
+    + "\"rssi\":" + wap->rssi
+    + "}"
+    + String(((char)0x03))
+  );
+}
+
+
+
 
 void setup() {
   Serial.begin(115200);
   delay(5000);
-  Serial.println("Simple Chat demo.");
 
   //ble.debugLogger(true);
   // Initialize ble_stack.
   ble.init();
+  
+  ble.debugLogger(true);
+  ble.debugError(true);
 
   // Register BLE callback functions
   ble.onConnectedCallback(deviceConnectedCallback);
@@ -303,31 +420,48 @@ void setup() {
   ble.addCharacteristic(BLE_UUID_GAP_CHARACTERISTIC_APPEARANCE, ATT_PROPERTY_READ, appearance, sizeof(appearance));
   ble.addCharacteristic(BLE_UUID_GAP_CHARACTERISTIC_PPCP, ATT_PROPERTY_READ, conn_param, sizeof(conn_param));
 
-  // Add GATT service and characteristics
   ble.addService(BLE_UUID_GATT);
   ble.addCharacteristic(BLE_UUID_GATT_CHARACTERISTIC_SERVICE_CHANGED, ATT_PROPERTY_INDICATE, change, sizeof(change));
 
-  // Add user defined service and characteristics
   ble.addService(service1_uuid);
   character_scale_status_handle = ble.addCharacteristicDynamic(service1_characteristic_scale_status_uuid, ATT_PROPERTY_NOTIFY | ATT_PROPERTY_READ, characteristic_scale_status_data, CHARACTERISTIC_SCALE_STATUS_MAX_LEN);
-
   character1_handle = ble.addCharacteristicDynamic(service1_tx_uuid, ATT_PROPERTY_NOTIFY | ATT_PROPERTY_WRITE | ATT_PROPERTY_WRITE_WITHOUT_RESPONSE, characteristic1_data, CHARACTERISTIC1_MAX_LEN);
   character2_handle = ble.addCharacteristicDynamic(service1_rx_uuid, ATT_PROPERTY_NOTIFY | ATT_PROPERTY_READ, characteristic2_data, CHARACTERISTIC2_MAX_LEN);
 
-  // Set BLE advertising parameters
   ble.setAdvertisementParams(&adv_params);
-
-  // // Set BLE advertising data
   ble.setAdvertisementData(sizeof(adv_data), adv_data);
-
-  // BLE peripheral starts advertising now.
   ble.startAdvertising();
   Serial.println("BLE start advertising.");
 
   // set one-shot timer
-  serialInputTimer.process = &notifySerialInput;
-  ble.setTimer(&serialInputTimer, 500);//100ms
+  serialInputTimer.process = &processSerialInput;
+  ble.setTimer(&serialInputTimer, serialInputTimerTime);
   ble.addTimer(&serialInputTimer);
+
+  pushNotificationTimer.process = &processPushNotif;
+  ble.setTimer(&pushNotificationTimer, pushNotificationTimerTime);
+  ble.addTimer(&pushNotificationTimer);
+
+  setStatus(SCALE_STATUS_INIT, WIFI_STATUS_INIT);
+  setScaleStatus(SCALE_STATUS_READY);
+
+  
+  WiFi.on();
+  if (WiFi.hasCredentials()) {
+    WiFiAccessPoint ap[1];
+    int found = WiFi.getCredentials(ap, 1);
+    if (found == 1) {
+      Serial.println("Wifi: Credentials Found");
+      Serial.print("Wifi: Trying to connect to: ");
+      Serial.println(ap[0].ssid);
+      connectWifi();
+    } else {
+       setWifiStatus(WIFI_STATUS_NO_CREDENTIAL);
+    }
+    return;
+  } else {
+    setWifiStatus(WIFI_STATUS_NO_CREDENTIAL);
+  }
 }
 
 void loop() {
