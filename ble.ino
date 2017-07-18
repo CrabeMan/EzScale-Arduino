@@ -5,7 +5,7 @@
    BLE peripheral preferred connection parameters:
        - Minimum connection interval = MIN_CONN_INTERVAL * 1.25 ms, where MIN_CONN_INTERVAL ranges from 0x0006 to 0x0C80
        - Maximum connection interval = MAX_CONN_INTERVAL * 1.25 ms,  where MAX_CONN_INTERVAL ranges from 0x0006 to 0x0C80
-       - The SLAVE_LATENCY ranges from 0x0000 to 0x03E8
+       - The SLAVE_LATENCY ranges freadScaleTimerTimerom 0x0000 to 0x03E8
        - Connection supervision timeout = CONN_SUPERVISION_TIMEOUT * 10 ms, where CONN_SUPERVISION_TIMEOUT ranges from 0x000A to 0x0C80
 */
 #define MIN_CONN_INTERVAL          0x0028 // 50ms.
@@ -26,7 +26,6 @@
 
 #define CHARACTERISTIC_SCALE_STATUS_MAX_LEN          2
 #define CHARACTERISTIC1_MAX_LEN                     20
-#define CHARACTERISTIC2_MAX_LEN                     20
 
 
 /******************************************************
@@ -52,11 +51,9 @@ static byte WIFI_STATUS_SCANNING                = 0x15;
 /******************************************************
                  Variable Definitions
  ******************************************************/
-static uint8_t service1_uuid[16]    = { 0x71, 0x3d, 0x00, 0x00, 0x50, 0x3e, 0x4c, 0x75, 0xba, 0x94, 0x31, 0x48, 0xf1, 0x8d, 0x94, 0x1e };
-static uint8_t service1_characteristic_scale_status_uuid[16] = { 0x71, 0x3d, 0x00, 0x06, 0x50, 0x3e, 0x4c, 0x75, 0xba, 0x94, 0x31, 0x48, 0xf1, 0x8d, 0x94, 0x1e };
-
-static uint8_t service1_tx_uuid[16] = { 0x71, 0x3d, 0x00, 0x03, 0x50, 0x3e, 0x4c, 0x75, 0xba, 0x94, 0x31, 0x48, 0xf1, 0x8d, 0x94, 0x1e };
-static uint8_t service1_rx_uuid[16] = { 0x71, 0x3d, 0x00, 0x02, 0x50, 0x3e, 0x4c, 0x75, 0xba, 0x94, 0x31, 0x48, 0xf1, 0x8d, 0x94, 0x1e };
+static uint8_t service1_uuid[16]    =                          { 0x71, 0x3d, 0x00, 0x00, 0x50, 0x3e, 0x4c, 0x75, 0xba, 0x94, 0x31, 0x48, 0xf1, 0x8d, 0x94, 0x1e };
+static uint8_t service1_characteristic_scale_status_uuid[16] = { 0x71, 0x3d, 0x00, 0x02, 0x50, 0x3e, 0x4c, 0x75, 0xba, 0x94, 0x31, 0x48, 0xf1, 0x8d, 0x94, 0x1e };
+static uint8_t service1_json_gate_uuid[16] =                   { 0x71, 0x3d, 0x00, 0x01, 0x50, 0x3e, 0x4c, 0x75, 0xba, 0x94, 0x31, 0x48, 0xf1, 0x8d, 0x94, 0x1e };
 
 // GAP and GATT characteristics value
 static uint8_t  appearance[2] = {
@@ -104,15 +101,12 @@ static uint8_t adv_data[] = {
 
 
 static uint16_t character_scale_status_handle = 0x0000;
-
-static uint16_t character1_handle = 0x0000;
-static uint16_t character2_handle = 0x0000;
+static uint16_t character_json_gate_handle = 0x0000;
 
 
 static uint8_t characteristic_scale_status_data[CHARACTERISTIC_SCALE_STATUS_MAX_LEN] = {SCALE_STATUS_INIT, WIFI_STATUS_INIT};
 
 static uint8_t characteristic1_data[CHARACTERISTIC1_MAX_LEN] = { 0x01 };
-static uint8_t characteristic2_data[CHARACTERISTIC2_MAX_LEN] = { 0x00 };
 
 static btstack_timer_source_t serialInputTimer;
 static int serialInputTimerTime = 200;
@@ -122,6 +116,10 @@ static int pushNotificationTimerTime = 100;
 
 static btstack_timer_source_t readScaleTimer;
 static int readScaleTimerTime = 100;
+
+static btstack_timer_source_t readButtonTimer;
+static int readButtonTimerTime = 100;
+
 static String inBuffer = NULL;
 
 struct NotificationMessage {
@@ -129,12 +127,9 @@ struct NotificationMessage {
   int size;
 };
 static QueueList <NotificationMessage> notificationsQueue;
-static StaticJsonBuffer<300> jsonBuffer;
-
 
 void bleInit() {
   ble.init();
-  
   ble.debugLogger(true);
   ble.debugError(true);
 
@@ -147,8 +142,8 @@ void bleInit() {
   // Add GAP service and characteristics
   ble.addService(BLE_UUID_GAP);
   ble.addCharacteristic(BLE_UUID_GAP_CHARACTERISTIC_DEVICE_NAME, ATT_PROPERTY_READ, (uint8_t*)BLE_DEVICE_NAME, sizeof(BLE_DEVICE_NAME));
-  ble.addCharacteristic(0x2ABE/* Object Name */, ATT_PROPERTY_READ, (uint8_t*)BLE_OBJECT_NAME, sizeof(BLE_OBJECT_NAME));
-  ble.addCharacteristic(0x2AC3/* Object ID */, ATT_PROPERTY_READ, (uint8_t*) BLE_OBJECT_ID, sizeof(BLE_OBJECT_ID));
+  ble.addCharacteristic(0x2ABE, ATT_PROPERTY_READ, (uint8_t*)BLE_OBJECT_NAME, sizeof(BLE_OBJECT_NAME)); //Object Name
+  ble.addCharacteristic(0x2AC3, ATT_PROPERTY_READ, (uint8_t*) BLE_OBJECT_ID, sizeof(BLE_OBJECT_ID)); //Object ID
 
   ble.addCharacteristic(BLE_UUID_GAP_CHARACTERISTIC_APPEARANCE, ATT_PROPERTY_READ, appearance, sizeof(appearance));
   ble.addCharacteristic(BLE_UUID_GAP_CHARACTERISTIC_PPCP, ATT_PROPERTY_READ, conn_param, sizeof(conn_param));
@@ -158,9 +153,8 @@ void bleInit() {
 
   ble.addService(service1_uuid);
   character_scale_status_handle = ble.addCharacteristicDynamic(service1_characteristic_scale_status_uuid, ATT_PROPERTY_NOTIFY | ATT_PROPERTY_READ, characteristic_scale_status_data, CHARACTERISTIC_SCALE_STATUS_MAX_LEN);
-  character1_handle = ble.addCharacteristicDynamic(service1_tx_uuid, ATT_PROPERTY_NOTIFY | ATT_PROPERTY_WRITE | ATT_PROPERTY_WRITE_WITHOUT_RESPONSE, characteristic1_data, CHARACTERISTIC1_MAX_LEN);
-  character2_handle = ble.addCharacteristicDynamic(service1_rx_uuid, ATT_PROPERTY_NOTIFY | ATT_PROPERTY_READ, characteristic2_data, CHARACTERISTIC2_MAX_LEN);
-
+  character_json_gate_handle = ble.addCharacteristicDynamic(service1_json_gate_uuid, ATT_PROPERTY_NOTIFY | ATT_PROPERTY_WRITE | ATT_PROPERTY_WRITE_WITHOUT_RESPONSE, characteristic1_data, CHARACTERISTIC1_MAX_LEN);
+  
   ble.setAdvertisementParams(&adv_params);
   ble.setAdvertisementData(sizeof(adv_data), adv_data);
   ble.startAdvertising();
@@ -177,6 +171,10 @@ void bleInit() {
   readScaleTimer.process = &processReadScale;
   ble.setTimer(&readScaleTimer, readScaleTimerTime);
   ble.addTimer(&readScaleTimer);
+
+  readButtonTimer.process = &processReadButton;
+  ble.setTimer(&readButtonTimer, readButtonTimerTime);
+  ble.addTimer(&readButtonTimer);
 
   setStatus(SCALE_STATUS_INIT, WIFI_STATUS_INIT);
   setScaleStatus(SCALE_STATUS_READY);
@@ -219,23 +217,20 @@ void sendNotification(String json) {
 void deviceConnectedCallback(BLEStatus_t status, uint16_t handle) {
   switch (status) {
     case BLE_STATUS_OK:
-      Serial.println("Device connected!");
+      Serial.println("Ble: Device connected");
       break;
     default: break;
   }
 }
 
 void deviceDisconnectedCallback(uint16_t handle) {
-  Serial.println("Disconnected.");
+  Serial.println("Ble: Device Disconnected");
 }
 
 
 
 int gattWriteCallback(uint16_t value_handle, uint8_t *buffer, uint16_t size) {
-  Serial.print("Write value handler: ");
-  Serial.println(value_handle, HEX);
-
-  if (character1_handle == value_handle) {
+  if (character_json_gate_handle == value_handle) {
     if (size > 0) {
       int i = 0;
       if (inBuffer == NULL && buffer[0] == 0x02) {
@@ -257,15 +252,7 @@ int gattWriteCallback(uint16_t value_handle, uint8_t *buffer, uint16_t size) {
 }
 
 uint16_t gattReadCallback(uint16_t value_handle, uint8_t * buffer, uint16_t buffer_size) {
-
-  Serial.print("Reads attribute value, handle: ");
-  Serial.println(value_handle, HEX);
-
   if (character_scale_status_handle == value_handle) {   // Characteristic value handle.
-    Serial.println(buffer_size);
-    Serial.println(characteristic_scale_status_data[0], HEX);
-    Serial.println(characteristic_scale_status_data[1], HEX);
-
     memcpy(buffer, characteristic_scale_status_data, CHARACTERISTIC_SCALE_STATUS_MAX_LEN);
     return CHARACTERISTIC_SCALE_STATUS_MAX_LEN;
   }
@@ -289,6 +276,11 @@ void onMessageWrite(String json) {
     wifiSetCredential(ssid, atoi(secChar), password);
   } else if (type == "wifi-info") {
     wifiSendConnectInfo();
+  } else if (type == "user-sync") {
+    const char* userId = jsonRoot["user-id"];
+    bool result = syncUser(userId);
+    String json = "{\"type\":\"user-sync\",\"result\":" + ((result == true) ? String("true") : String("false")) + "}";
+    sendNotification(formatForSend(json));
   }
 }
 
@@ -296,23 +288,23 @@ void onMessageWrite(String json) {
 void pushNotification() {
   if (!notificationsQueue.isEmpty()) {
     NotificationMessage notif = notificationsQueue.pop();
-    ble.sendNotify(character1_handle, notif.msg, notif.size);
+    ble.sendNotify(character_json_gate_handle, notif.msg, notif.size);
   }
 }
 
 void setStatus(byte scaleStaus, byte wifiStatus) {
   characteristic_scale_status_data[0] = scaleStaus;
   characteristic_scale_status_data[1] = wifiStatus;
-  ble.sendNotify(character_scale_status_handle, characteristic_scale_status_data, CHARACTERISTIC2_MAX_LEN);
+  ble.sendNotify(character_scale_status_handle, characteristic_scale_status_data, CHARACTERISTIC_SCALE_STATUS_MAX_LEN);
 }
 
 void setScaleStatus(byte scaleStaus) {
   characteristic_scale_status_data[0] = scaleStaus;
-  ble.sendNotify(character_scale_status_handle, characteristic_scale_status_data, CHARACTERISTIC2_MAX_LEN);
+  ble.sendNotify(character_scale_status_handle, characteristic_scale_status_data, CHARACTERISTIC_SCALE_STATUS_MAX_LEN);
 }
 
 void setWifiStatus(byte wifiStatus) {
   characteristic_scale_status_data[1] = wifiStatus;
-  ble.sendNotify(character_scale_status_handle, characteristic_scale_status_data, CHARACTERISTIC2_MAX_LEN);
+  ble.sendNotify(character_scale_status_handle, characteristic_scale_status_data, CHARACTERISTIC_SCALE_STATUS_MAX_LEN);
 }
 

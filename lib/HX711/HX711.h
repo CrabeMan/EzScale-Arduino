@@ -78,9 +78,9 @@ class HX711
 		// wakes up the chip after power down mode
 		void power_up();
 
-#if defined(PARTICLE) 
+#if defined(PARTICLE)
     // to keep the Particle cloud happy when the library blocks
-    inline void yield() { Particle.process(); }; 
+    inline void yield() { Particle.process(); };
 #endif
 };
 

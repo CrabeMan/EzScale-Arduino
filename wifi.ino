@@ -13,15 +13,19 @@ void wifiInit() {
       connectWifi();
     } else {
        setWifiStatus(WIFI_STATUS_NO_CREDENTIAL);
+       lcdPrintLine(0, "Wifi No Credential");
     }
     return;
   } else {
+    Serial.println("Wifi No Credential");
     setWifiStatus(WIFI_STATUS_NO_CREDENTIAL);
+    lcdPrintLine(0, "Wifi No Credential");
   }
 }
 
 static void connectWifi() {
   setWifiStatus(WIFI_STATUS_CONNECTING);
+  lcdPrintLine(0, "Wifi Connecting");
 
   //WiFi.setCredentials("TP-LINK_4DE4","34221921");
   Serial.println("Wifi: Trying to connect");
@@ -29,10 +33,12 @@ static void connectWifi() {
   int connectCounter = 0;
   while (WiFi.connecting()) {
     Serial.print(".");
+    //lcdPrint(".");
     delay(100);
     if (++connectCounter == 50) {//5 sec
       Serial.println("\nWifi: Connect Timeout");
       setWifiStatus(WIFI_STATUS_CONNECT_TIMEOUT);
+      lcdPrintLine(0, "Wifi Connect Timeout");
       WiFi.disconnect();
       return;
     }
@@ -41,12 +47,12 @@ static void connectWifi() {
   Serial.print(".");
   delay(100);
 
-  if (WiFi.RSSI() == 0) {
+  /*if (WiFi.RSSI() == 0) {
     Serial.println("\nWifi: Not connected");
     setWifiStatus(WIFI_STATUS_CONNECT_TIMEOUT);
     WiFi.disconnect();
     return;
-  }
+  }*/
 
   Serial.println("\nWifi: Connected");
   Serial.println("Wifi: Waiting for an IP address");
@@ -67,7 +73,11 @@ static void connectWifi() {
     }
   }
   Serial.println("\nWifi: Ip Ok");
+  lcdPrintLine(0, "Wifi Connected");
   setWifiStatus(WIFI_STATUS_CONNECTED);
+
+  lcdPrintLine(0, "Getting Users");
+  pullUsers();
 }
 
 void wifiScanCallback(WiFiAccessPoint* wap, void* data) {

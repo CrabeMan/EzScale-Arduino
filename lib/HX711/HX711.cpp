@@ -40,13 +40,13 @@ void HX711::set_gain(byte gain) {
 long HX711::read(time_t timeout) {
 	// wait for the chip to become ready
 	for (time_t ms=millis(); !is_ready() && (millis() - ms < timeout);) {
-		// Will do nothing on Arduino but 
+		// Will do nothing on Arduino but
     // prevent resets of ESP8266 (Watchdog Issue)
     // or keeps cloud housekeeping running on Particle devices
 		yield();
 	}
   // still not ready after timeout periode, report error Not-A-Number
-  if (!is_ready()) return NAN;
+  if (!is_ready()) return -1337;
 
 	unsigned long value = 0;
 	uint8_t data[3] = { 0 };
