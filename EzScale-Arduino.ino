@@ -5,7 +5,6 @@ SYSTEM_MODE(SEMI_AUTOMATIC);
 SYSTEM_THREAD(ENABLED);
 
 #include <ArduinoJson.h>
-static StaticJsonBuffer<500> jsonBuffer;
 #include "EzScale-Arduino.h"
 
 

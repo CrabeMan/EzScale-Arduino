@@ -264,12 +264,14 @@ uint16_t gattReadCallback(uint16_t value_handle, uint8_t * buffer, uint16_t buff
 
 void onMessageWrite(String json) {
   Serial.println("Read Message: " + json);
+  StaticJsonBuffer<500> jsonBuffer;
   JsonObject& jsonRoot = jsonBuffer.parseObject(json);
   const char* typeChar = jsonRoot["type"];
   String type = String(typeChar);
   if (type == "wifi-scan") { //WIFI SCAN
     wifiScan();
   } else if (type == "wifi-credential") { //WIFI CREDENTIAL
+    Serial.println("wifi-credential");
     const char* ssid = jsonRoot["ssid"];
     const char* secChar = jsonRoot["sec"];
     const char* password = jsonRoot["pwd"];

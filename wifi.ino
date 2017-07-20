@@ -13,13 +13,12 @@ void wifiInit() {
       connectWifi();
     } else {
        setWifiStatus(WIFI_STATUS_NO_CREDENTIAL);
-       lcdPrintLine(0, "Wifi No Credential");
+       lcdPrintLine(0, "Wifi No Creds.s");
     }
     return;
   } else {
-    Serial.println("Wifi No Credential");
     setWifiStatus(WIFI_STATUS_NO_CREDENTIAL);
-    lcdPrintLine(0, "Wifi No Credential");
+    lcdPrintLine(0, "Wifi No Creds.");
   }
 }
 
@@ -27,7 +26,6 @@ static void connectWifi() {
   setWifiStatus(WIFI_STATUS_CONNECTING);
   lcdPrintLine(0, "Wifi Connecting");
 
-  //WiFi.setCredentials("TP-LINK_4DE4","34221921");
   Serial.println("Wifi: Trying to connect");
   WiFi.connect(WIFI_CONNECT_SKIP_LISTEN);
   int connectCounter = 0;
@@ -102,7 +100,10 @@ void wifiScan() {
 }
 
 void wifiSetCredential(const char* ssid, int security, const char* password) {
-  //WiFi.clearCredentials();
+  Serial.println("Set credentials and connect to Wifi");
+  WiFi.off();
+  WiFi.clearCredentials();
+  WiFi.on();
   Serial.println("Set credentials and connect to Wifi");
   switch (security) {
     case 0:

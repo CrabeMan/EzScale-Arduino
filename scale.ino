@@ -1,6 +1,6 @@
 #include "scale.h"
 
-#define WEIGH_AVERAGE_RANGE 8
+#define WEIGH_AVERAGE_RANGE 5
 #define API_IP "192.168.1.42"
 #define API_PORT 3000
 
@@ -82,6 +82,8 @@ void scaleReadWeigh() {
       char buffer[8];
       sprintf(buffer, "%5.1f Ok", weighAverage);
       lcdPrintLine(1, buffer);
+
+      printUserSelected();
       return;
     }
   }
@@ -111,6 +113,7 @@ bool pullUsers() {
   Serial.print("Application>\tHTTP Response Body: ");
   Serial.println(response.body);
   
+  StaticJsonBuffer<500> jsonBuffer;
   JsonArray& usersJson = jsonBuffer.parseArray(response.body);
   usersCount = usersJson.size();
 
