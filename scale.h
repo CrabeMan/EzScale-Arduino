@@ -6,7 +6,7 @@
 #include "lib/HX711/HX711.cpp"
 #include <Wire.h>
 #include <math.h>
-#include "HttpClient/firmware/HttpClient.cpp"
+#include "lib/HttpClient/HttpClient.cpp"
 
 struct User {
   char* id;

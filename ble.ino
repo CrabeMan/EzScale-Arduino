@@ -283,6 +283,7 @@ void onMessageWrite(String json) {
     bool result = syncUser(userId);
     String json = "{\"type\":\"user-sync\",\"result\":" + ((result == true) ? String("true") : String("false")) + "}";
     sendNotification(formatForSend(json));
+    pullUsers();
   }
 }
 

@@ -12,8 +12,8 @@ void wifiInit() {
       Serial.println(ap[0].ssid);
       connectWifi();
     } else {
-       setWifiStatus(WIFI_STATUS_NO_CREDENTIAL);
-       lcdPrintLine(0, "Wifi No Creds.s");
+      setWifiStatus(WIFI_STATUS_NO_CREDENTIAL);
+      lcdPrintLine(0, "Wifi No Creds.s");
     }
     return;
   } else {
@@ -34,10 +34,11 @@ static void connectWifi() {
     //lcdPrint(".");
     delay(100);
     if (++connectCounter == 50) {//5 sec
-      Serial.println("\nWifi: Connect Timeout");
+      Serial.println("\nWifi: Wifi NotConnect");
       setWifiStatus(WIFI_STATUS_CONNECT_TIMEOUT);
-      lcdPrintLine(0, "Wifi Connect Timeout");
+      lcdPrintLine(0, "Wifi NotConnect");
       WiFi.disconnect();
+      WiFi.off();
       return;
     }
   }
@@ -50,12 +51,12 @@ static void connectWifi() {
     setWifiStatus(WIFI_STATUS_CONNECT_TIMEOUT);
     WiFi.disconnect();
     return;
-  }*/
+    }*/
 
   Serial.println("\nWifi: Connected");
   Serial.println("Wifi: Waiting for an IP address");
   setWifiStatus(WIFI_STATUS_CONNECTED_WAIT_FOR_DHCP);
-  
+
   int dhcpCounter = 0;
   IPAddress localIP = WiFi.localIP();
   while (localIP[0] == 0) {
@@ -74,13 +75,12 @@ static void connectWifi() {
   lcdPrintLine(0, "Wifi Connected");
   setWifiStatus(WIFI_STATUS_CONNECTED);
 
-  lcdPrintLine(0, "Getting Users");
   pullUsers();
 }
 
 void wifiScanCallback(WiFiAccessPoint* wap, void* data) {
   sendNotification(
-  String(((char)0x02))
+    String(((char)0x02))
     + "{\"type\":\"wifi-result\","
     + "\"ssid\":\"" + String(wap->ssid) + "\","
     + "\"sec\":" + wap->security + ","
@@ -109,11 +109,11 @@ void wifiSetCredential(const char* ssid, int security, const char* password) {
     case 0:
       WiFi.setCredentials(ssid);
       break;
-  
+
     case 1:
       WiFi.setCredentials(ssid, password, WEP, WLAN_CIPHER_NOT_SET);
       break;
-  
+
     case 2:
     case 3:
       WiFi.setCredentials(ssid, password);
@@ -130,14 +130,14 @@ void wifiSendConnectInfo() {
   byte mac[6];
   WiFi.BSSID(bssid);
   WiFi.macAddress(mac);
-  
+
   char bssidChar[17];
   char macChar[17];
 
   sprintf(bssidChar, "%02X:%02X:%02X:%02X:%02X:%02X", bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
   sprintf(macChar, "%02X:%02X:%02X:%02X:%02X:%02X", mac[5], mac[4], mac[3], mac[2], mac[1], mac[0]);
   sendNotification(
-  String(((char)0x02))
+    String(((char)0x02))
     + "{\"type\":\"wifi-info\","
     + "\"ssid\":\"" + ssid + "\","
     + "\"bssid\":\"" + bssidChar + "\","

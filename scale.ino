@@ -1,7 +1,7 @@
 #include "scale.h"
 
-#define WEIGH_AVERAGE_RANGE 5
-#define API_IP "192.168.1.42"
+#define WEIGH_AVERAGE_RANGE 4
+#define API_IP "192.168.0.101"
 #define API_PORT 3000
 
 static HX711 scale(D2, D3);
@@ -97,6 +97,8 @@ void scaleReadWeigh() {
 }
 
 bool pullUsers() {
+  lcdPrintLine(0, "Getting Users");
+  
   http_request_t request;
   http_response_t response;
   request.hostname = API_IP;
@@ -107,11 +109,11 @@ bool pullUsers() {
   if (response.status < 0) {
     return false;
   }
-  Serial.print("Application>\tResponse status: ");
-  Serial.println(response.status);
-  
-  Serial.print("Application>\tHTTP Response Body: ");
-  Serial.println(response.body);
+
+  if (response.status < 0) {
+    lcdPrintLine(0, "Cannot Get Users");
+    return false;
+  }
   
   StaticJsonBuffer<500> jsonBuffer;
   JsonArray& usersJson = jsonBuffer.parseArray(response.body);
@@ -122,7 +124,9 @@ bool pullUsers() {
   }
 
   if (usersCount == 0) {
-    lcdPrintLine(0, "No Linked Users");
+    lcdPrintLine(0, "No Link");
+    userSelected = -1;
+    return true;
   }
   
   usersList = (User*) malloc(usersCount * sizeof(User));
@@ -191,13 +195,8 @@ bool syncUser(const char* userId) {
   
   // Get request
   http.post(request, response, headers);
-  Serial.print("Application>\tResponse status: ");
-  Serial.println(response.status);
-
   if (response.status < 0) return false;
   
-  Serial.print("Application>\tHTTP Response Body: ");
-  Serial.println(response.body);
 
   return true;
 }
@@ -210,6 +209,7 @@ void printUserSelected() {
 
 
 void onBtnDown() {
+  if (usersCount == 0) return;
   if (userSelected == 0) {
     userSelected = usersCount-1;
   } else {
@@ -220,12 +220,15 @@ void onBtnDown() {
 
 
 void onBtnUp() {
+  if (usersCount == 0) return;
   userSelected++;
   userSelected%=usersCount;
   printUserSelected();
 }
 
 void onBtnSet() {
+  if (usersCount == 0) return;
+  
   if (usersList != NULL && weighToSend != -1 && readyForSend == true && userSelected > -1 && userSelected < usersCount) {
     lcdPrintLine(0, "Sending weigh");
     if (saveWeigh(usersList[userSelected], weighToSend) == true) {
