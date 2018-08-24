@@ -1,35 +1,35 @@
 # EzScale Arduino
 
-**EzScake** is a project made in ESGI school cursus. Our mission was to build a project by using a iot object, mobile application and API service. We choici to build a weigh scale.
+**EzScake** is a project made in ESGI school cursus. Our mission was to build a project by using an iot object, a mobile application and an API. We choice to build a weigh scale.
 
 ### Work with
 * [Node.Js Api](https://github.com/CrabeMan/EzScale-Api)
 * [Android Application](https://github.com/CrabeMan/EzScale-Android)
 ![alt Architecture](images/architecture.png)
 
-## Built With
-* [Default Scale Body](https://www.amazon.fr/gp/product/B015PLKK62/ref=oh_aui_detailpage_o06_s00?ie=UTF8&psc=1)
+## Build with
+* [Original Weigh scale](https://www.amazon.fr/gp/product/B015PLKK62/ref=oh_aui_detailpage_o06_s00?ie=UTF8&psc=1)
 * [RedBear Duo](https://redbear.cc/product/wifi-ble/redbear-duo.html)
 * [I2C Screen 16*2](https://www.amazon.fr/gp/product/B019SXNKGU/ref=oh_aui_detailpage_o01_s00?ie=UTF8&psc=1)
 * [HX711](#)
 
 ## How to work ?
-We use the RedBear duo board. We use the BLE to communicate with the Android application to setup the wifi connection and link the user's account to the weigh scale. The Wifi is use to send the weighing to the API.
+We use the RedBear duo board. We use the BLE to communicate with the Android application to setup the wifi connection and link the user's account to the weigh scale. The Wifi is used to send the weighing to the API.
 ![alt Schematic](images/schematic.jpg)
 
 ### HX711
-We use a HX711 for amplify and calibrate the weight sensors. These 4 weighing pressure sensor, present on the original weigh scale, hooked up in a wheatstone bridge formation.
+We use a HX711 to amplify and calibrate the weight sensors. These 4 weighing pressure sensors, present on the original weigh scale, hooked up in a wheatstone bridge formation.
 
 ### LCD Screen
-We replace the original LCD screen for a 16*2 LCD I2C screen.
+We replaced the original LCD Screen for a 16*2 LCD I2C screen.
 
 
 ### Front Buttons
-The default body scale was equipped of three buttons and a LCD screen. We has use these three buttons for the profil selection and the confirmation when weighing.
+The default body scale was equipped of three buttons and a LCD screen. We have used these three buttons for the profile selection and the confirmation when weighing.
 
 
 ### BLE GATT
-We create a GATT service to communicate with the Android application. The service has for address: 713d0000-503e-4c75-ba94-3148f18d941e. This service contain two custom characteristic
+We create a GATT service to communicate with the Android application. The service has for address: 713d0000-503e-4c75-ba94-3148f18d941e. This service contains two custom characteristics
 
 | Address                              | Type          | Byte Length  | Info      |
 | ------------------------------------ |:-------------:| ------------:|----------:|
@@ -51,7 +51,7 @@ We create a GATT service to communicate with the Android application. The servic
 | CONNECTED_WAIT_FOR_DHCP | 0x03 | SCANNING        | 0x15 |
 
 ##### Json Gate
-We use a custom characteristic as a gateway to communicate with batch of 20 bytes of Json message. The application can write to this characteristic to send json batch and subscribe to be notify of incoming json batch.
+We use a custom characteristic as a gateway to communicate with batch of 20 bytes of Json message. The application can write to this characteristic to send json batch and subscribe to be notified of incoming json batch.
 
 | Separator | Byte |
 | --------- | ----:|
